@@ -1,10 +1,12 @@
-package br.unioeste.sd.chat.server;
+package br.unioeste.sd.chat.servers;
+
+import br.unioeste.sd.chat.servers.handlers.TcpClientHandler;
 
 import java.io.*;
 import java.net.*;
 import java.util.*;
 
-public class Server {
+public class TcpServer {
     private static final int PORT = 1024;
     static final Map<String, ObjectOutputStream> clients = new HashMap<>();
 
@@ -15,9 +17,9 @@ public class Server {
 
         while (true) {
             Socket socket = serverSocket.accept();
-            ClientHandler clientHandler = new ClientHandler(socket, clients);
+            TcpClientHandler tcpClientHandler = new TcpClientHandler(socket, clients);
 
-            clientHandler.start();
+            tcpClientHandler.start();
         }
     }
 }

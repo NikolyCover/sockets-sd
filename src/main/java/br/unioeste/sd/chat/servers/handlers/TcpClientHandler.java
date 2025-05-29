@@ -1,4 +1,4 @@
-package br.unioeste.sd.chat.server;
+package br.unioeste.sd.chat.servers.handlers;
 
 import br.unioeste.sd.chat.domain.Message;
 
@@ -6,7 +6,7 @@ import java.io.*;
 import java.net.Socket;
 import java.util.Map;
 
-public class ClientHandler extends Thread {
+public class TcpClientHandler extends Thread {
     private final Socket socket;
     private final ObjectOutputStream out;
     private final ObjectInputStream in;
@@ -14,7 +14,7 @@ public class ClientHandler extends Thread {
 
     private String username;
 
-    public ClientHandler(Socket socket, Map<String, ObjectOutputStream> clients) throws IOException {
+    public TcpClientHandler(Socket socket, Map<String, ObjectOutputStream> clients) throws IOException {
         this.socket = socket;
         this.clients = clients;
         this.out = new ObjectOutputStream(socket.getOutputStream());
