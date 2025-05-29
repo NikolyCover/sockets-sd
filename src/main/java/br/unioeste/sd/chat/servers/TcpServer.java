@@ -1,5 +1,6 @@
 package br.unioeste.sd.chat.servers;
 
+import br.unioeste.sd.chat.domain.User;
 import br.unioeste.sd.chat.servers.handlers.TcpClientHandler;
 
 import java.io.*;
@@ -8,7 +9,7 @@ import java.util.*;
 
 public class TcpServer {
     private static final int PORT = 1024;
-    static final Map<String, ObjectOutputStream> clients = new HashMap<>();
+    static final Map<User, ObjectOutputStream> clients = new HashMap<>();
 
     public static void main(String[] args) throws IOException {
         ServerSocket serverSocket = new ServerSocket(PORT);

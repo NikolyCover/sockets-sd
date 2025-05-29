@@ -1,6 +1,8 @@
 package br.unioeste.sd.chat.servers.handlers;
 
 import br.unioeste.sd.chat.domain.Message;
+import br.unioeste.sd.chat.domain.User;
+import br.unioeste.sd.chat.utils.MessageUtils;
 
 import java.io.*;
 import java.net.Socket;
@@ -10,11 +12,11 @@ public class TcpClientHandler extends Thread {
     private final Socket socket;
     private final ObjectOutputStream out;
     private final ObjectInputStream in;
-    private final Map<String, ObjectOutputStream> clients;
+    private final Map<User, ObjectOutputStream> clients;
 
     private String username;
 
-    public TcpClientHandler(Socket socket, Map<String, ObjectOutputStream> clients) throws IOException {
+    public TcpClientHandler(Socket socket, Map<User, ObjectOutputStream> clients) throws IOException {
         this.socket = socket;
         this.clients = clients;
         this.out = new ObjectOutputStream(socket.getOutputStream());
@@ -26,7 +28,9 @@ public class TcpClientHandler extends Thread {
             username = (String) in.readObject();
 
             synchronized (clients) {
-                clients.put(username, out);
+                User user = new User(username, socket.getInetAddress().getHostAddress());
+
+                clients.put(user, out);
 
                 broadcast(null, username + " entrou no chat");
             }
@@ -34,8 +38,11 @@ public class TcpClientHandler extends Thread {
             Message message = null;
 
             while ((message = (Message) in.readObject()) != null) {
-                if(message.getRecipient() == null){
+                if(message.getRecipient().equals( "/all")){
                     broadcast(message.getSender(), message.getContent());
+                }
+                else if(message.getRecipient().equals("/online")){
+                    sendPrivate(null, message.getSender(), MessageUtils.getOnlineUsers(clients.keySet().stream().toList()));
                 }
                 else {
                     sendPrivate(message.getSender(), message.getRecipient(), message.getContent());
@@ -59,11 +66,11 @@ public class TcpClientHandler extends Thread {
     private void broadcast(String sender, String content) throws IOException {
         Message msg = new Message(sender, null, content);
 
-        for (Map.Entry<String, ObjectOutputStream> clientOut : clients.entrySet()) {
-            String key = clientOut.getKey();
+        for (Map.Entry<User, ObjectOutputStream> clientOut : clients.entrySet()) {
+            User user = clientOut.getKey();
             ObjectOutputStream out = clientOut.getValue();
 
-            if(!key.equals(username)){
+            if(!user.getUsername().equals(username)){
                 out.writeObject(msg);
             }
 
@@ -71,7 +78,17 @@ public class TcpClientHandler extends Thread {
     }
 
     private void sendPrivate(String sender, String recipient, String content) throws IOException {
-        ObjectOutputStream clientOut = clients.get(recipient);
+        ObjectOutputStream clientOut = null;
+
+        synchronized (clients) {
+            for (Map.Entry<User, ObjectOutputStream> entry : clients.entrySet()) {
+                if (entry.getKey().getUsername().equals(recipient)) {
+                    clientOut = entry.getValue();
+                    break;
+                }
+            }
+        }
+
         if (clientOut != null) {
             clientOut.writeObject(new Message(sender, recipient, content));
         } else {

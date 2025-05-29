@@ -1,18 +1,29 @@
 package br.unioeste.sd.chat.utils;
 
 import br.unioeste.sd.chat.domain.Message;
+import br.unioeste.sd.chat.domain.User;
+import de.vandermeer.asciitable.AsciiTable;
+
+import java.net.Socket;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class MessageUtils {
     public static String parseRecipient(String line) {
         if (line.startsWith("/all")) {
-            return null;
+            return "/all";
         } else if (line.startsWith("@")) {
             String[] parts = line.split(" ", 2);
             if (parts.length < 2) {
                 throw new RuntimeException("Mensagem privada deve conter o destinatário e o conteúdo");
             }
             return parts[0].substring(1);
-        } else {
+        }
+        else if (line.startsWith("/online")) {
+            return "/online";
+        }
+        else {
             throw new RuntimeException("Formato inválido. Use /all ou @nome.");
         }
     }
@@ -52,7 +63,11 @@ public class MessageUtils {
         final String RESET = "\u001B[0m";
         final String YELLOW = "\u001B[33m";
 
-        String recipient = message.getRecipient() != null ? message.getRecipient() : "todos";
+        String recipient = message.getRecipient().equals("/all") ? "todos" : message.getRecipient();
+
+        if(recipient.equals("/online")){
+            return;
+        }
 
         System.out.println(YELLOW + "Para " + recipient + RESET + ": " + message.getContent());
     }
@@ -68,5 +83,22 @@ public class MessageUtils {
         b = 100 + (b % 156);
 
         return String.format("\u001B[38;2;%d;%d;%dm", r, g, b);
+    }
+
+    public static String getOnlineUsers(List<User> users){
+        AsciiTable table = new AsciiTable();
+
+        table.addRule();
+        table.addRow("Usuários", "IPs");
+        table.addRule();
+
+        for (User user : users) {
+            table.addRow(user.getUsername(), user.getIp());
+            table.addRule();
+        }
+
+        table.addRule();
+
+        return "Listando usuários online...\n" + table.render();
     }
 }
