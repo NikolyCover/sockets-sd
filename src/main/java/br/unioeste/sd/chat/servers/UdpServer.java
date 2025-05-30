@@ -1,5 +1,6 @@
 package br.unioeste.sd.chat.servers;
 
+import br.unioeste.sd.chat.domain.User;
 import br.unioeste.sd.chat.servers.handlers.UdpClientHandler;
 
 import java.io.IOException;
@@ -12,7 +13,7 @@ import java.util.Map;
 public class UdpServer {
     private static final int SERVER_PORT = 1024;
 
-    private static final Map<String, InetSocketAddress> clients = new HashMap<>();
+    private static final Map<User, InetSocketAddress> clients = new HashMap<>();
 
     public static void main(String[] args) throws IOException {
         DatagramSocket socket = new DatagramSocket(SERVER_PORT);

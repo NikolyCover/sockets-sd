@@ -1,6 +1,8 @@
 package br.unioeste.sd.chat.servers.handlers;
 
 import br.unioeste.sd.chat.domain.Message;
+import br.unioeste.sd.chat.domain.User;
+import br.unioeste.sd.chat.utils.MessageUtils;
 
 import java.io.*;
 import java.net.DatagramPacket;
@@ -8,59 +10,142 @@ import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.util.Map;
 
-public class UdpClientHandler extends Thread{
+public class UdpClientHandler extends Thread {
     private final DatagramSocket socket;
-    private final DatagramPacket receivedPacket;
-    private final Map<String, InetSocketAddress> clients;
+    private final DatagramPacket packet;
+    private final Map<User, InetSocketAddress> clients;
 
-    public UdpClientHandler(DatagramSocket socket, DatagramPacket receivedPacket, Map<String, InetSocketAddress> clients) {
+    private String username;
+
+    public UdpClientHandler(DatagramSocket socket, DatagramPacket packet, Map<User, InetSocketAddress> clients) {
         this.socket = socket;
-        this.receivedPacket = receivedPacket;
+        this.packet = packet;
         this.clients = clients;
     }
 
     @Override
     public void run() {
-        try {
-            ByteArrayInputStream bais = new ByteArrayInputStream(receivedPacket.getData(), 0, receivedPacket.getLength());
-            ObjectInputStream ois = new ObjectInputStream(bais);
+        try (
+                ByteArrayInputStream bais = new ByteArrayInputStream(packet.getData(), 0, packet.getLength());
+                ObjectInputStream ois = new ObjectInputStream(bais)
+        ) {
+            Object obj = ois.readObject();
 
-            Message message = (Message) ois.readObject();
-            InetSocketAddress senderAddress = new InetSocketAddress(receivedPacket.getAddress(), receivedPacket.getPort());
+            if (obj instanceof String username) {
+                this.username = username;
 
-            clients.putIfAbsent(message.getSender(), senderAddress);
+                synchronized (clients) {
+                    InetSocketAddress userAddress = new InetSocketAddress(packet.getAddress(), packet.getPort());
+                    User user = new User(username, userAddress.getAddress().getHostAddress());
 
-            if (message.getRecipient() == null) {
-                for (Map.Entry<String, InetSocketAddress> entry : clients.entrySet()) {
-                    sendMessage(entry.getValue(), message);
+                    clients.put(user, userAddress);
+                    broadcast(null, username + " entrou no chat");
                 }
-            } else {
-                InetSocketAddress recipientAddress = clients.get(message.getRecipient());
 
-                if (recipientAddress != null) {
-                    sendMessage(recipientAddress, message);
-                } else {
-                    Message error = Message.builder()
+            } else if (obj instanceof Message message) {
+                String sender = message.getSender();
+                String recipient = message.getRecipient();
+
+                if(recipient == null){
+                    broadcast(null, message.getContent());
+                }
+                else if (recipient.equals("/all")) {
+                    broadcast(message.getSender(), message.getContent());
+                } else if (recipient.equals("/online")) {
+                    Message onlineMsg = Message.builder()
                             .sender(null)
-                            .content("Usuário \"" + message.getRecipient() + "\" não encontrado.")
+                            .recipient(sender)
+                            .content(MessageUtils.getOnlineUsers(clients.keySet().stream().toList()))
                             .build();
-                    sendMessage(senderAddress, error);
+
+                    InetSocketAddress address = getInetSocketAddress(sender);
+                    sendMessage(address, onlineMsg);
+                } else {
+                    InetSocketAddress recipientAddress = getInetSocketAddress(recipient);
+
+                    if (recipientAddress != null) {
+                        sendMessage(recipientAddress, message);
+                    } else {
+                        Message error = Message.builder()
+                                .sender(null)
+                                .recipient(sender)
+                                .content("Usuário \"" + recipient + "\" não encontrado.")
+                                .build();
+
+                        InetSocketAddress senderAddress = getInetSocketAddress(sender);
+                        sendMessage(senderAddress, error);
+                    }
                 }
             }
-        } catch (IOException | ClassNotFoundException e) {
-            System.err.println("Erro ao processar pacote UDP: " + e.getMessage());
+
+        } catch (Exception e) {
+            System.out.println("Usuário " + username + " desconectado.");
+        } finally {
+            try {
+                socket.close();
+                synchronized (clients) {
+                    removeClientByUsername(username);
+                    broadcast(null, username + " saiu do chat");
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private void broadcast(String sender, String content) throws IOException {
+        Message msg = new Message(sender, null, content);
+
+        for (Map.Entry<User, InetSocketAddress> clientOut : clients.entrySet()) {
+            User user = clientOut.getKey();
+            InetSocketAddress out = clientOut.getValue();
+
+            if(!user.getUsername().equals(sender)){
+                sendMessage(out, msg);
+            }
+
         }
     }
 
     private void sendMessage(InetSocketAddress address, Message message) throws IOException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ObjectOutputStream oos = new ObjectOutputStream(baos);
-
         oos.writeObject(message);
         oos.flush();
 
         byte[] data = baos.toByteArray();
         DatagramPacket packet = new DatagramPacket(data, data.length, address.getAddress(), address.getPort());
         socket.send(packet);
+
+        System.out.println("Mensagem enviada para: " + address);
+    }
+
+    private InetSocketAddress getInetSocketAddress(String recipientUsername) {
+        synchronized (clients) {
+            for (Map.Entry<User, InetSocketAddress> entry : clients.entrySet()) {
+                if (entry.getKey().getUsername().equals(recipientUsername)) {
+                    return entry.getValue();
+                }
+            }
+        }
+        return null;
+    }
+
+    private void removeClientByUsername(String username) {
+        synchronized (clients) {
+            User userToRemove = null;
+
+            for (User user : clients.keySet()) {
+                if (user.getUsername().equals(username)) {
+                    userToRemove = user;
+                    break;
+                }
+            }
+
+            if (userToRemove != null) {
+                clients.remove(userToRemove);
+                System.out.println("Usuário removido: " + username);
+            }
+        }
     }
 }

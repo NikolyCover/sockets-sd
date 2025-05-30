@@ -22,8 +22,8 @@ public class UdpClient {
         System.out.print("Digite seu nome de usuário: ");
         String username = scanner.nextLine();
 
-        sendObject(socket, serverAddress,
-                new Message(null, null, username + " entrou no chat"));
+        sendObject(socket, serverAddress, username);
+
 
         new Thread(() -> {
             byte[] buffer = new byte[4096];
