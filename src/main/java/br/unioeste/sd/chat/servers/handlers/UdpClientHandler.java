@@ -31,15 +31,15 @@ public class UdpClientHandler extends Thread {
         ) {
             Object obj = ois.readObject();
 
-            if (obj instanceof String username) {
-                this.username = username;
+            if (obj instanceof String objMessage) {
+                this.username = objMessage;
 
                 synchronized (clients) {
                     InetSocketAddress userAddress = new InetSocketAddress(packet.getAddress(), packet.getPort());
                     User user = new User(username, userAddress.getAddress().getHostAddress());
 
                     clients.put(user, userAddress);
-                    broadcast(null, username + " entrou no chat");
+                    broadcast(null, user + " entrou no chat");
                 }
 
             } else if (obj instanceof Message message) {
