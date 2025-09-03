@@ -80,17 +80,18 @@ public class UdpClientHandler extends Thread {
 
         } catch (Exception e) {
             System.out.println("Usuário " + username + " desconectado.");
-        } finally {
-            try {
-                socket.close();
-                synchronized (clients) {
-                    removeClientByUsername(username);
-                    broadcast(null, username + " saiu do chat");
-                }
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
         }
+//        } finally {
+//            try {
+//                socket.close();
+//                synchronized (clients) {
+//                    removeClientByUsername(username);
+//                    broadcast(null, username + " saiu do chat");
+//                }
+//            } catch (IOException e) {
+//                e.printStackTrace();
+//            }
+//        }
     }
 
     private void broadcast(String sender, String content) throws IOException {

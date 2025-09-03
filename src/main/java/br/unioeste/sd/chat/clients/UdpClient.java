@@ -11,7 +11,7 @@ import java.util.Scanner;
 
 public class UdpClient {
     private static final String SERVER_IP = "localhost";
-    private static final int SERVER_PORT = 2048;
+    private static final int SERVER_PORT = 1048;
 
     public static void main(String[] args) throws IOException {
         DatagramSocket socket = new DatagramSocket();

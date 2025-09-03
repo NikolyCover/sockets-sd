@@ -11,7 +11,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class UdpServer {
-    private static final int SERVER_PORT = 2048;
+    private static final int SERVER_PORT = 1048;
 
     private static final Map<User, InetSocketAddress> clients = new HashMap<>();
 
