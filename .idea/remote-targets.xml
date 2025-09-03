@@ -11,6 +11,12 @@
             <option name="homePath" value="/home/vinicius.jimenez/.jdks/corretto-21.0.4" />
           </config>
         </ContributedStateBase>
+        <ContributedStateBase type="MavenRuntime">
+          <config>
+            <option name="homePath" value="C:\Users\vinicius.jimenez\AppData\Local\Programs\IntelliJ IDEA Ultimate\plugins\maven\lib\maven3" />
+            <option name="versionString" value="3.9.9" />
+          </config>
+        </ContributedStateBase>
       </target>
     </targets>
   </component>

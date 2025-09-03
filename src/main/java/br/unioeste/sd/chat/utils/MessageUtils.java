@@ -1,5 +1,6 @@
 package br.unioeste.sd.chat.utils;
 
+import br.unioeste.sd.chat.domain.ClientSession;
 import br.unioeste.sd.chat.domain.Message;
 import br.unioeste.sd.chat.domain.User;
 import de.vandermeer.asciitable.AsciiTable;
