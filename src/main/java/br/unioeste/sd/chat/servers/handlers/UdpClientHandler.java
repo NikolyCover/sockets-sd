@@ -1,23 +1,29 @@
 package br.unioeste.sd.chat.servers.handlers;
 
+import br.unioeste.sd.chat.domain.HandshakeRequest;
 import br.unioeste.sd.chat.domain.Message;
+import br.unioeste.sd.chat.domain.UdpClientSession;
 import br.unioeste.sd.chat.domain.User;
+import br.unioeste.sd.chat.utils.CryptoUtils;
 import br.unioeste.sd.chat.utils.MessageUtils;
 
+import javax.crypto.SecretKey;
 import java.io.*;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
+import java.security.KeyFactory;
+import java.security.PublicKey;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.Base64;
 import java.util.Map;
 
 public class UdpClientHandler extends Thread {
     private final DatagramSocket socket;
     private final DatagramPacket packet;
-    private final Map<User, InetSocketAddress> clients;
+    private final Map<User, UdpClientSession> clients;
 
-    private String username;
-
-    public UdpClientHandler(DatagramSocket socket, DatagramPacket packet, Map<User, InetSocketAddress> clients) {
+    public UdpClientHandler(DatagramSocket socket, DatagramPacket packet, Map<User, UdpClientSession> clients) {
         this.socket = socket;
         this.packet = packet;
         this.clients = clients;
@@ -30,123 +36,121 @@ public class UdpClientHandler extends Thread {
                 ObjectInputStream ois = new ObjectInputStream(bais)
         ) {
             Object obj = ois.readObject();
+            InetSocketAddress senderAddress = new InetSocketAddress(packet.getAddress(), packet.getPort());
 
-            if (obj instanceof String objMessage) {
-                this.username = objMessage;
+            if (obj instanceof HandshakeRequest) {
+                HandshakeRequest request = (HandshakeRequest) obj;
+
+                User user = new User(request.getUsername(), senderAddress.getAddress().getHostAddress());
+
+                byte[] pubKeyBytes = Base64.getDecoder().decode(request.getRsaPublicKey());
+                KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+                PublicKey clientPublicKey = keyFactory.generatePublic(new X509EncodedKeySpec(pubKeyBytes));
+                SecretKey aesKey = CryptoUtils.generateAESKey();
+                UdpClientSession session = new UdpClientSession(senderAddress, aesKey);
+
+                String encryptedAESKey = CryptoUtils.encryptRSA(aesKey.getEncoded(), clientPublicKey);
+                sendObject(senderAddress, encryptedAESKey);
 
                 synchronized (clients) {
-                    InetSocketAddress userAddress = new InetSocketAddress(packet.getAddress(), packet.getPort());
-                    User user = new User(username, userAddress.getAddress().getHostAddress());
-
-                    clients.put(user, userAddress);
-                    broadcast(null, user + " entrou no chat");
+                    clients.put(user, session);
                 }
 
-            } else if (obj instanceof Message message) {
-                String sender = message.getSender();
-                String recipient = message.getRecipient();
+                System.out.println("Sessão segura estabelecida com " + user.getUsername());
 
-                if(recipient == null){
-                    broadcast(null, message.getContent());
-                }
-                else if (recipient.equals("/all")) {
-                    broadcast(message.getSender(), message.getContent());
-                } else if (recipient.equals("/online")) {
-                    Message onlineMsg = Message.builder()
-                            .sender(null)
-                            .recipient(sender)
-                            .content(MessageUtils.getOnlineUsers(clients.keySet().stream().toList()))
-                            .build();
+                broadcast(null, user.getUsername() + " entrou no chat");
 
-                    InetSocketAddress address = getInetSocketAddress(sender);
-                    sendMessage(address, onlineMsg);
-                } else {
-                    InetSocketAddress recipientAddress = getInetSocketAddress(recipient);
+            } else if (obj instanceof Message) {
+                Message message = (Message) obj;
+                User senderUser = findUserByUsername(message.getSender());
+                if (senderUser == null) return;
 
-                    if (recipientAddress != null) {
-                        sendMessage(recipientAddress, message);
-                    } else {
-                        Message error = Message.builder()
-                                .sender(null)
-                                .recipient(sender)
-                                .content("Usuário \"" + recipient + "\" não encontrado.")
-                                .build();
+                UdpClientSession senderSession = clients.get(senderUser);
+                if (senderSession == null || senderSession.getSecretKey() == null) return;
 
-                        InetSocketAddress senderAddress = getInetSocketAddress(sender);
-                        sendMessage(senderAddress, error);
-                    }
-                }
+                String[] parts = message.getContent().split(":");
+                String ciphertext = parts[0];
+                byte[] iv = Base64.getDecoder().decode(parts[1]);
+                String decryptedContent = CryptoUtils.decryptAES(ciphertext, senderSession.getSecretKey(), iv);
+                message.setContent(decryptedContent);
+
+                routeMessage(message, senderSession);
             }
-
         } catch (Exception e) {
-            System.out.println("Usuário " + username + " desconectado.");
+            e.printStackTrace();
         }
-//        } finally {
-//            try {
-//                socket.close();
-//                synchronized (clients) {
-//                    removeClientByUsername(username);
-//                    broadcast(null, username + " saiu do chat");
-//                }
-//            } catch (IOException e) {
-//                e.printStackTrace();
-//            }
-//        }
     }
 
-    private void broadcast(String sender, String content) throws IOException {
-        Message msg = new Message(sender, null, content);
-
-        for (Map.Entry<User, InetSocketAddress> clientOut : clients.entrySet()) {
-            User user = clientOut.getKey();
-            InetSocketAddress out = clientOut.getValue();
-
-            if(!user.getUsername().equals(sender)){
-                sendMessage(out, msg);
+    private void routeMessage(Message message, UdpClientSession senderSession) throws Exception {
+        String recipient = message.getRecipient();
+        if (recipient.equals("/all")) {
+            broadcast(message.getSender(), message.getContent());
+        } else if (recipient.equals("/online")) {
+            Message onlineMsg = new Message(null, message.getSender(), MessageUtils.getOnlineUsers(clients.keySet().stream().toList()));
+            sendMessage(senderSession, onlineMsg);
+        } else {
+            UdpClientSession recipientSession = getUdpClientSession(recipient);
+            if (recipientSession != null) {
+                sendMessage(recipientSession, message);
+            } else {
+                Message errorMsg = new Message("Servidor", message.getSender(), "Usuário '" + recipient + "' não encontrado.");
+                sendMessage(senderSession, errorMsg);
             }
-
         }
     }
 
-    private void sendMessage(InetSocketAddress address, Message message) throws IOException {
+    private void broadcast(String sender, String content) throws Exception {
+        Message msg = new Message(sender, null, content);
+        synchronized (clients) {
+            for (Map.Entry<User, UdpClientSession> entry : clients.entrySet()) {
+                if (!entry.getKey().getUsername().equals(sender)) {
+                    sendMessage(entry.getValue(), msg);
+                }
+            }
+        }
+    }
+
+    private void sendMessage(UdpClientSession session, Message message) throws Exception {
+        if (session == null || session.getSecretKey() == null) return;
+
+        String originalContent = message.getContent();
+
+        if (!originalContent.startsWith("Usuários online:")) {
+            byte[] iv = CryptoUtils.generateIV();
+            String ciphertext = CryptoUtils.encryptAES(originalContent, session.getSecretKey(), iv);
+            String payload = ciphertext + ":" + Base64.getEncoder().encodeToString(iv);
+            message.setContent(payload);
+        }
+
+        sendObject(session.getAddress(), message);
+        message.setContent(originalContent);
+    }
+
+    private void sendObject(InetSocketAddress address, Object obj) throws IOException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ObjectOutputStream oos = new ObjectOutputStream(baos);
-        oos.writeObject(message);
+        oos.writeObject(obj);
         oos.flush();
-
         byte[] data = baos.toByteArray();
-        DatagramPacket packet = new DatagramPacket(data, data.length, address.getAddress(), address.getPort());
+        DatagramPacket packet = new DatagramPacket(data, data.length, address);
         socket.send(packet);
-
-        System.out.println("Mensagem enviada para: " + address);
     }
 
-    private InetSocketAddress getInetSocketAddress(String recipientUsername) {
+    private User findUserByUsername(String username) {
         synchronized (clients) {
-            for (Map.Entry<User, InetSocketAddress> entry : clients.entrySet()) {
-                if (entry.getKey().getUsername().equals(recipientUsername)) {
-                    return entry.getValue();
+            for (User user : clients.keySet()) {
+                if (user.getUsername().equals(username)) {
+                    return user;
                 }
             }
         }
         return null;
     }
 
-    private void removeClientByUsername(String username) {
+    private UdpClientSession getUdpClientSession(String username) {
         synchronized (clients) {
-            User userToRemove = null;
-
-            for (User user : clients.keySet()) {
-                if (user.getUsername().equals(username)) {
-                    userToRemove = user;
-                    break;
-                }
-            }
-
-            if (userToRemove != null) {
-                clients.remove(userToRemove);
-                System.out.println("Usuário removido: " + username);
-            }
+            User user = findUserByUsername(username);
+            return (user != null) ? clients.get(user) : null;
         }
     }
 }

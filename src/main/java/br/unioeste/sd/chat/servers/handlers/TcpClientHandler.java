@@ -1,5 +1,3 @@
-// br/unioeste/sd/chat/servers/handlers/TcpClientHandler.java
-
 package br.unioeste.sd.chat.servers.handlers;
 
 import br.unioeste.sd.chat.domain.ClientSession; // MODIFICADO
